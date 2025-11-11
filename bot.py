@@ -27,6 +27,11 @@ from handlers.wishlist import (
     cancel_delete_callback,
     edit_wish_callback,
     edit_field_choice_callback,
+    edit_title_handler,
+    edit_description_handler,
+    edit_url_handler,
+    edit_price_handler,
+    edit_image_handler,
     cancel_edit_callback,
     TITLE,
     DESCRIPTION,
@@ -96,30 +101,32 @@ def main():
         ],
     )
 
-    # === Conversation Handler for editing a wish (тільки вибір полів, без окремих обробників поки що) ===
+    # === Conversation Handler for editing a wish ===
     edit_wish_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_wish_callback, pattern="^edit_")],
         states={
             EDIT_TITLE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_edit_callback)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_title_handler)
             ],
             EDIT_DESCRIPTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_edit_callback)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_description_handler)
             ],
             EDIT_URL: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_edit_callback)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_url_handler)
             ],
             EDIT_PRICE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_edit_callback)
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_price_handler)
             ],
             EDIT_IMAGE: [
-                MessageHandler(filters.PHOTO, cancel_edit_callback),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_edit_callback),
+                MessageHandler(filters.PHOTO, edit_image_handler),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_image_handler),
             ],
         },
         fallbacks=[
+            CallbackQueryHandler(edit_field_choice_callback, pattern=r"^edit_field_"),
             MessageHandler(filters.Regex(f"^{CANCEL_BUTTON}$"), cancel_edit_callback),
             CommandHandler("cancel", cancel_edit_callback),
+            CallbackQueryHandler(cancel_edit_callback, pattern="^cancel_edit$"),
         ],
     )
 
@@ -142,12 +149,6 @@ def main():
     )
     application.add_handler(
         CallbackQueryHandler(cancel_delete_callback, pattern="^cancel_delete$")
-    )
-    application.add_handler(
-        CallbackQueryHandler(edit_field_choice_callback, pattern=r"^edit_field_")
-    )
-    application.add_handler(
-        CallbackQueryHandler(cancel_edit_callback, pattern="^cancel_edit$")
     )
 
     # === Menu Buttons ===

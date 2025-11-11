@@ -499,6 +499,136 @@ async def edit_field_choice_callback(
         return EDIT_IMAGE
 
 
+async def edit_title_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle title editing"""
+    wish_id = context.user_data.get("editing_wish_id")
+    if not wish_id:
+        await update.message.reply_text("❌ Error: wish ID not found")
+        return ConversationHandler.END
+
+    new_title = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    updated_wish = update_wish(wish_id, user_id, title=new_title)
+    if updated_wish:
+        await update.message.reply_text("✅ Title updated!", parse_mode="HTML")
+        await send_wish_detail(update, updated_wish, show_actions=True)
+    else:
+        await update.message.reply_text(
+            "❌ Failed to update title", reply_markup=main_menu_keyboard()
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def edit_description_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle description editing"""
+    wish_id = context.user_data.get("editing_wish_id")
+    if not wish_id:
+        await update.message.reply_text("❌ Error: wish ID not found")
+        return ConversationHandler.END
+
+    new_description = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    updated_wish = update_wish(wish_id, user_id, description=new_description)
+    if updated_wish:
+        await update.message.reply_text("✅ Description updated!", parse_mode="HTML")
+        await send_wish_detail(update, updated_wish, show_actions=True)
+    else:
+        await update.message.reply_text(
+            "❌ Failed to update description", reply_markup=main_menu_keyboard()
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def edit_url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle URL editing"""
+    wish_id = context.user_data.get("editing_wish_id")
+    if not wish_id:
+        await update.message.reply_text("❌ Error: wish ID not found")
+        return ConversationHandler.END
+
+    new_url = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    updated_wish = update_wish(wish_id, user_id, url=new_url)
+    if updated_wish:
+        await update.message.reply_text("✅ URL updated!", parse_mode="HTML")
+        await send_wish_detail(update, updated_wish, show_actions=True)
+    else:
+        await update.message.reply_text(
+            "❌ Failed to update URL", reply_markup=main_menu_keyboard()
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def edit_price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle price editing"""
+    wish_id = context.user_data.get("editing_wish_id")
+    if not wish_id:
+        await update.message.reply_text("❌ Error: wish ID not found")
+        return ConversationHandler.END
+
+    new_price = update.message.text.strip()
+    user_id = update.effective_user.id
+
+    updated_wish = update_wish(wish_id, user_id, price=new_price)
+    if updated_wish:
+        await update.message.reply_text("✅ Price updated!", parse_mode="HTML")
+        await send_wish_detail(update, updated_wish, show_actions=True)
+    else:
+        await update.message.reply_text(
+            "❌ Failed to update price", reply_markup=main_menu_keyboard()
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+async def edit_image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle image editing"""
+    wish_id = context.user_data.get("editing_wish_id")
+    if not wish_id:
+        await update.message.reply_text("❌ Error: wish ID not found")
+        return ConversationHandler.END
+
+    user_id = update.effective_user.id
+
+    if update.message.photo:
+        photo_file = await update.message.photo[-1].get_file()
+        image_path = f"images/{user_id}_{wish_id}.jpg"
+        await photo_file.download_to_drive(image_path)
+
+        updated_wish = update_wish(wish_id, user_id, image_path=image_path)
+    else:
+        text = update.message.text.strip()
+        if text.lower() == "skip":
+            updated_wish = update_wish(wish_id, user_id, image_path=None)
+        else:
+            await update.message.reply_text(
+                "❌ Please send a photo or type 'skip'",
+                reply_markup=cancel_keyboard(),
+            )
+            return EDIT_IMAGE
+
+    if updated_wish:
+        await update.message.reply_text("✅ Image updated!", parse_mode="HTML")
+        await send_wish_detail(update, updated_wish, show_actions=True)
+    else:
+        await update.message.reply_text(
+            "❌ Failed to update image", reply_markup=main_menu_keyboard()
+        )
+
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
 async def cancel_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel editing via button"""
     query = update.callback_query
