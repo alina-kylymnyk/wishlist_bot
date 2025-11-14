@@ -1,4 +1,8 @@
+import os
 import logging
+from fastapi import FastAPI
+import uvicorn
+
 from telegram import Update
 from telegram.ext import (
     Application,
@@ -45,7 +49,6 @@ from handlers.wishlist import (
     EDIT_IMAGE,
 )
 from handlers.share import share_wishlist, view_shared_wishlist
-
 from keyboards import (
     MY_WISHLIST_BUTTON,
     ADD_WISH_BUTTON,
@@ -59,25 +62,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# --- FastAPI app for Render ---
+app = FastAPI()
 
+
+@app.get("/")
+async def root():
+    return {"message": "Bot is running!"}
+
+
+# --- Background task for Telegram notifications ---
+async def background_task(application: Application):
+    while True:
+        chat_ids = os.environ.get("TELEGRAM_CHAT_ID", "").split(",")
+        for chat_id in chat_ids:
+            chat_id = chat_id.strip()
+            if chat_id:
+                try:
+                    await application.bot.send_message(
+                        chat_id, "Hello! This is a background message."
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send message to {chat_id}: {e}")
+        await asyncio.sleep(60)  # repeat interval in seconds
+
+
+# --- /start command with optional arguments ---
 async def start_with_args(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start with arguments (for viewing shared wishlists)"""
     if context.args and context.args[0].startswith("view_"):
         await view_shared_wishlist(update, context)
     else:
         await start_command(update, context)
 
 
-def main():
-    """Main function to launch the bot"""
-
-    print("🔧 Database initialization...")
+# === Main async function ===
+async def main():
+    print("🔧 Initializing database...")
     init_db()
 
-    print("🤖 Launching bot...")
+    print("🤖 Launching Telegram bot...")
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # === Conversation Handler for adding a wish ===
+    # --- Add handlers ---
+
+    # Conversation handler for adding a wish
     add_wish_conv = ConversationHandler(
         entry_points=[
             CommandHandler("add", add_wish_start),
@@ -101,7 +129,7 @@ def main():
         ],
     )
 
-    # === Conversation Handler for editing a wish ===
+    # Conversation handler for editing a wish
     edit_wish_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(edit_wish_callback, pattern="^edit_")],
         states={
@@ -109,7 +137,9 @@ def main():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_title_handler)
             ],
             EDIT_DESCRIPTION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, edit_description_handler)
+                MessageHandler(
+                    filters.TEXT & ~filters.COMMAND, edit_description_handler
+                )
             ],
             EDIT_URL: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, edit_url_handler)
@@ -130,17 +160,17 @@ def main():
         ],
     )
 
-    # === Register command handlers ===
+    # Register command handlers
     application.add_handler(CommandHandler("start", start_with_args))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("mywishlist", my_wishlist))
     application.add_handler(CommandHandler("share", share_wishlist))
 
-    # === Add ConversationHandlers ===
+    # Add conversation handlers
     application.add_handler(add_wish_conv)
     application.add_handler(edit_wish_conv)
 
-    # === CallbackQueryHandlers ===
+    # Callback query handlers
     application.add_handler(
         CallbackQueryHandler(delete_wish_callback, pattern="^delete_")
     )
@@ -151,7 +181,7 @@ def main():
         CallbackQueryHandler(cancel_delete_callback, pattern="^cancel_delete$")
     )
 
-    # === Menu Buttons ===
+    # Menu buttons
     application.add_handler(
         MessageHandler(filters.Regex(f"^{MY_WISHLIST_BUTTON}$"), my_wishlist)
     )
@@ -165,11 +195,24 @@ def main():
         )
     )
 
-    # === Launch the bot ===
+    # --- Start background task correctly ---
+    application.create_task(background_task(application))
+
+    # --- Start polling ---
     print("✅ Bot launched successfully!")
-    print("Press Ctrl+C to stop")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    await application.run_polling()
 
 
+# === Run everything on Render ===
 if __name__ == "__main__":
-    main()
+    import nest_asyncio
+
+    nest_asyncio.apply()  # allow nested loops in Jupyter/uvicorn/Render
+    import asyncio
+
+    # Run the async main
+    asyncio.run(main())
+
+    # Run FastAPI server on the same process (port from environment)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
