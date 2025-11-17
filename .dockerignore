@@ -1,0 +1,62 @@
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+.Python
+*.so
+
+# Virtual environments
+env/
+venv/
+.venv/
+botvenv/
+botvenv2/
+ENV/
+
+# Environment variables
+.env
+.env.local
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# Database (не копіюємо локальну БД в контейнер)
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+README.md
+*.md
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Other
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/

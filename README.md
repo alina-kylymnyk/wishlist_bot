@@ -45,6 +45,68 @@ wishlist_telegram_bot/
 
 ## Installation
 
+### Option 1: Using Docker (Recommended)
+
+The easiest way to run the bot is using Docker:
+
+1. **Prerequisites**
+   - Install [Docker](https://docs.docker.com/get-docker/)
+   - Install [Docker Compose](https://docs.docker.com/compose/install/)
+
+2. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd wishlist_telegram_bot
+   ```
+
+3. **Set up environment variables**
+
+   Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+
+   Edit `.env` and add your bot token:
+   ```env
+   BOT_TOKEN=your_telegram_bot_token_here
+   DATABASE_URL=sqlite:///data/wishlist.db
+   PORT=8000
+   ```
+
+   To get a bot token:
+   - Talk to [@BotFather](https://t.me/botfather) on Telegram
+   - Send `/newbot` command
+   - Follow the instructions to create your bot
+   - Copy the token provided
+
+4. **Create data directory**
+   ```bash
+   mkdir -p data
+   ```
+
+5. **Build and run with Docker Compose**
+   ```bash
+   docker-compose up -d
+   ```
+
+6. **Check if the bot is running**
+   ```bash
+   docker-compose logs -f
+   ```
+
+   You should see:
+   ```
+   ✅ Bot launched successfully (polling mode)
+   ```
+
+**Useful Docker commands:**
+- Stop the bot: `docker-compose down`
+- Restart the bot: `docker-compose restart`
+- View logs: `docker-compose logs -f`
+- Rebuild after code changes: `docker-compose up -d --build`
+
+### Option 2: Manual Installation
+
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
