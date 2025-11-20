@@ -45,7 +45,7 @@ def get_or_create_user(
 
         return user
     finally:
-        db.close
+        db.close()
 
 
 def get_user(user_id: int) -> Optional[User]:

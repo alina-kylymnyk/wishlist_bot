@@ -1,11 +1,9 @@
+import os
+from pathlib import Path
 from telegram import Update, InputMediaPhoto, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes,
     ConversationHandler,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
 )
 from keyboards import (
     main_menu_keyboard,
@@ -19,29 +17,31 @@ from keyboards import (
     SETTINGS_BUTTON,
     CANCEL_BUTTON,
     SKIP_BUTTON,
-    EDIT_BUTTON,
-    DELETE_BUTTON,
-    CONFIRM_DELETE_BUTTON,
 )
-from database import add_wish, get_user_wishes, get_wish, delete_wish, update_wish
+from services.wishlist_service import wishlist_service  
 
-
-# States for ConversationHandler (adding a wish)
+# States
 TITLE, DESCRIPTION, URL, PRICE, IMAGE = range(5)
-
-# States for editing
-EDIT_CHOICE, EDIT_TITLE, EDIT_DESCRIPTION, EDIT_URL, EDIT_PRICE, EDIT_IMAGE = range(
-    6, 12
-)
+EDIT_CHOICE, EDIT_TITLE, EDIT_DESCRIPTION, EDIT_URL, EDIT_PRICE, EDIT_IMAGE = range(6, 12)
 
 # ===== ADD A WISH =====
 
 
 async def add_wish_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Start the process of adding a new wish.
-    Sends the first message asking for the wish title.
+    Start adding a new wish
     """
+    user_id = update.effective_user.id
+
+    # check via service whether the user can add more wishes
+    if not wishlist_service.can_add_wish(user_id):
+        await update.message.reply_text(
+            f"❌ You've reached the limit of {wishlist_service.MAX_WISHES_PER_USER} wishes!",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard()
+        )
+        return ConversationHandler.END
+    
     await update.message.reply_text(
         "➕ <b>Adding a new wish</b>\n\n"
         "📝 Step 1 of 5: <b>Title</b>\n"
@@ -54,13 +54,24 @@ async def add_wish_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def wish_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Receive the wish title from the user.
+    Receive and validate the wish title
     """
     if update.message.text == CANCEL_BUTTON:
         return await cancel_add_wish(update, context)  # Handle cancellation
 
-    # Save the title in the context to use later
-    context.user_data["wish_title"] = update.message.text
+    title = update.message.text.strip()
+
+    # Validation via service
+    is_valid, error = wishlist_service.validate_title(title)
+    if not is_valid:
+        await update.message.reply_text(
+            f"❌ {error}\n\nPlease try again:",
+            parse_mode="HTML",
+            reply_markup=cancel_keyboard()
+        )
+        return TITLE
+    # Save the validated title
+    context.user_data["wish_title"] = title
 
     await update.message.reply_text(
         "💭 <b>Step 2 of 5: Description</b>\n"
@@ -83,7 +94,7 @@ async def wish_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text.strip() == SKIP_BUTTON:
         context.user_data["wish_description"] = None
     else:
-        context.user_data["wish_description"] = update.message.text
+        context.user_data["wish_description"] = update.message.text.strip()
 
     await update.message.reply_text(
         "🔗 <b>Step 3 of 5: URL</b>\n"
@@ -97,7 +108,7 @@ async def wish_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def wish_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Receive the URL of the wish.
+    Receive and validate the URL
     """
     if update.message.text == CANCEL_BUTTON:
         return await cancel_add_wish(update, context)
@@ -105,7 +116,18 @@ async def wish_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text.strip() == SKIP_BUTTON:
         context.user_data["wish_url"] = None
     else:
-        context.user_data["wish_url"] = update.message.text
+        url = update.message.text.strip()
+
+        # Validation via service
+        is_valid, error = wishlist_service.validate_url(url)
+        if not is_valid:
+            await update.message.reply_text(
+                f"❌ {error}\n\nPlease try again or press <b>⏭ Skip</b>:",
+                parse_mode="HTML",
+                reply_markup=skip_keyboard()
+            )
+            return URL
+        context.user_data["wish_url"] = url
 
     await update.message.reply_text(
         "💰 <b>Step 4 of 5: Price</b>\n"
@@ -127,7 +149,7 @@ async def wish_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text.strip() == SKIP_BUTTON:
         context.user_data["wish_price"] = None
     else:
-        context.user_data["wish_price"] = update.message.text
+        context.user_data["wish_price"] = update.message.text.strip()
 
     await update.message.reply_text(
         "📸 <b>Step 5 of 5: Photo</b>\n"
@@ -161,7 +183,7 @@ async def wish_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Save the wish to db
     user_id = update.effective_user.id
-    wish = add_wish(
+    wish, error = wishlist_service.add_wish(
         user_id=user_id,
         title=context.user_data["wish_title"],
         description=context.user_data.get("wish_description"),
@@ -169,6 +191,15 @@ async def wish_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         price=context.user_data.get("wish_price"),
         image_file_id=context.user_data.get("wish_image"),
     )
+
+    if error:
+        await update.message.reply_text(
+            f"❌ <b>Error:</b> {error}",
+            parse_mode="HTML",
+            reply_markup=main_menu_keyboard()
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
 
     success_message = f"✅ <b>Wish added!</b>\n\n"
     success_message += f"📦 <b>{wish.title}</b>\n"
@@ -190,7 +221,9 @@ async def wish_image(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            success_message, parse_mode="HTML", reply_markup=main_menu_keyboard()
+            success_message, 
+            parse_mode="HTML", 
+            reply_markup=main_menu_keyboard()
         )
 
     context.user_data.clear()
@@ -216,7 +249,7 @@ async def cancel_add_wish(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def my_wishlist(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show my whishlist"""
     user_id = update.effective_user.id
-    wishes = get_user_wishes(user_id)
+    wishes = wishlist_service.get_user_wishes(user_id)
 
     if not wishes:
         await update.message.reply_text(
@@ -276,20 +309,18 @@ async def delete_wish_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     wish_id = int(query.data.split("_")[1])
-    wish = get_wish(wish_id)
+    user_id = update.effective_user.id
+
+    wish = wishlist_service.get_wish(wish_id, user_id)
 
     if not wish:
+        text = "❌ Wish not found or access denied"
         if query.message.photo:
             await query.edit_message_caption(
-                caption="❌ Wish not found", parse_mode="HTML"
-            )
+                caption=text, parse_mode="HTML" 
+                )
         else:
-            await query.edit_message_text(text="❌ Wish not found", parse_mode="HTML")
-        return
-
-    # Check if the wish belongs to the current user
-    if wish.user_id != update.effective_user.id:
-        await query.answer("❌ This is not your wish!", show_alert=True)
+            await query.edit_message_text(text=text, parse_mode="HTML")
         return
 
     # Show confirmation
@@ -317,15 +348,13 @@ async def confirm_delete_callback(update: Update, context: ContextTypes.DEFAULT_
     wish_id = int(query.data.split("_")[2])
     user_id = update.effective_user.id
 
-    success_message = "✅ Wish deleted"
-    fail_message = "❌ Failed to delete wish"
-
+    success, error = wishlist_service.delete_wish(wish_id, user_id)
     message = query.message
 
-    if delete_wish(wish_id, user_id):
-        text = success_message
+    if success:
+        text = "✅ Wish deleted"
     else:
-        text = fail_message
+        text = f"❌ {error}"
 
     if message.caption:
         await query.edit_message_caption(caption=text, parse_mode="HTML")
@@ -348,33 +377,6 @@ async def cancel_delete_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 
-# ===== MAIN MENU BUTTON HANDLING =====
-
-
-async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle clicks on main menu buttons"""
-    text = update.message.text
-
-    if text == MY_WISHLIST_BUTTON:
-        await my_wishlist(update, context)
-
-    elif text == ADD_WISH_BUTTON:
-        return await add_wish_start(update, context)
-
-    elif text == SHARE_BUTTON:
-        await update.message.reply_text(
-            "🔗 Feature in development...\n"
-            "Soon you will be able to share your wishlist!",
-            reply_markup=main_menu_keyboard(),
-        )
-
-    elif text == SETTINGS_BUTTON:
-        await update.message.reply_text(
-            "⚙️ Feature in development...\n" "Settings will be available soon!",
-            reply_markup=main_menu_keyboard(),
-        )
-
-
 # ===== EDIT WISH =====
 
 
@@ -387,17 +389,19 @@ async def edit_wish_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     wish_id = int(query.data.split("_")[1])
-    wish = get_wish(wish_id)
+    user_id = update.effective_user.id
+
+    wish = wishlist_service.get_wish(wish_id, user_id)
+
 
     if not wish:
-        await query.edit_message_caption(caption="❌ Wish not found", parse_mode="HTML")
+        text = "❌ Wish not found or access denied"
+        if query.message.photo:
+            await query.edit_message_caption(caption=text, parse_mode="HTML")
+        else:
+            await query.edit_message_text(text=text, parse_mode="HTML")
         return
-
-    # Check if the wish belongs to the user
-    if wish.user_id != update.effective_user.id:
-        await query.answer("❌ This is not your wish!", show_alert=True)
-        return
-
+    
     # Save the wish ID for editing
     context.user_data["editing_wish_id"] = wish_id
 
@@ -450,10 +454,11 @@ async def edit_field_choice_callback(
     data = query.data.split("_")  # e.g., edit_field_title_42
     field = data[2]
     wish_id = int(data[3])
+    user_id = update.effective_user.id
 
     context.user_data["editing_wish_id"] = wish_id
 
-    wish = get_wish(wish_id)
+    wish = wishlist_service.get_wish(wish_id, user_id)
     if not wish:
         await query.edit_message_text("❌ Wish not found")
         return ConversationHandler.END
@@ -509,14 +514,21 @@ async def edit_title_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_title = update.message.text.strip()
     user_id = update.effective_user.id
 
-    updated_wish = update_wish(wish_id, user_id, title=new_title)
-    if updated_wish:
+    updated_wish, error = wishlist_service.update_wish(
+        wish_id,
+        user_id,
+        title=new_title
+    )
+
+    if error:
+        await update.message.reply_text(
+            f"❌ {error}", 
+            reply_markup=main_menu_keyboard()
+        )
+    else:
         await update.message.reply_text("✅ Title updated!", parse_mode="HTML")
         await send_wish_detail(update, updated_wish, show_actions=True)
-    else:
-        await update.message.reply_text(
-            "❌ Failed to update title", reply_markup=main_menu_keyboard()
-        )
+
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -532,14 +544,17 @@ async def edit_description_handler(update: Update, context: ContextTypes.DEFAULT
     new_description = update.message.text.strip()
     user_id = update.effective_user.id
 
-    updated_wish = update_wish(wish_id, user_id, description=new_description)
-    if updated_wish:
+    updated_wish, error = wishlist_service.update_wish(
+        wish_id, 
+        user_id, 
+        description=new_description
+    )
+
+    if error:
+        await update.message.reply_text(f"❌ {error}", reply_markup=main_menu_keyboard())
+    else:
         await update.message.reply_text("✅ Description updated!", parse_mode="HTML")
         await send_wish_detail(update, updated_wish, show_actions=True)
-    else:
-        await update.message.reply_text(
-            "❌ Failed to update description", reply_markup=main_menu_keyboard()
-        )
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -555,14 +570,17 @@ async def edit_url_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_url = update.message.text.strip()
     user_id = update.effective_user.id
 
-    updated_wish = update_wish(wish_id, user_id, url=new_url)
-    if updated_wish:
+    updated_wish, error = wishlist_service.update_wish(
+        wish_id, 
+        user_id, 
+        url=new_url
+    )
+
+    if error:
+        await update.message.reply_text(f"❌ {error}", reply_markup=main_menu_keyboard())
+    else:
         await update.message.reply_text("✅ URL updated!", parse_mode="HTML")
         await send_wish_detail(update, updated_wish, show_actions=True)
-    else:
-        await update.message.reply_text(
-            "❌ Failed to update URL", reply_markup=main_menu_keyboard()
-        )
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -578,14 +596,17 @@ async def edit_price_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     new_price = update.message.text.strip()
     user_id = update.effective_user.id
 
-    updated_wish = update_wish(wish_id, user_id, price=new_price)
-    if updated_wish:
+    updated_wish, error = wishlist_service.update_wish(
+        wish_id, 
+        user_id, 
+        price=new_price
+    )
+
+    if error:
+        await update.message.reply_text(f"❌ {error}", reply_markup=main_menu_keyboard())
+    else:
         await update.message.reply_text("✅ Price updated!", parse_mode="HTML")
         await send_wish_detail(update, updated_wish, show_actions=True)
-    else:
-        await update.message.reply_text(
-            "❌ Failed to update price", reply_markup=main_menu_keyboard()
-        )
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -601,15 +622,52 @@ async def edit_image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = update.effective_user.id
 
     if update.message.photo:
-        photo_file = await update.message.photo[-1].get_file()
-        image_path = f"images/{user_id}_{wish_id}.jpg"
-        await photo_file.download_to_drive(image_path)
+        try:
+            images_dir = Path("images")
+            images_dir.mkdir(exist_ok=True)
 
-        updated_wish = update_wish(wish_id, user_id, image_path=image_path)
+            photo_file = await update.message.photo[-1].get_file()
+            image_path = images_dir/f"{user_id}_{wish_id}.jpg"
+            await photo_file.download_to_drive(image_path)
+
+            updated_wish, error = wishlist_service.update_wish(
+                wish_id, 
+                user_id, 
+                image_path=str(image_path)
+            )
+            
+            if error:
+                await update.message.reply_text(
+                    f"❌ {error}",
+                    reply_markup=main_menu_keyboard()
+                )
+                context.user_data.clear()
+                return ConversationHandler.END
+
+        except Exception as e:
+            await update.message.reply_text(
+                f"❌ Failed to save image: {e}",
+                reply_markup=main_menu_keyboard()
+            )
+            context.user_data.clear()
+            return ConversationHandler.END
+            
     else:
         text = update.message.text.strip()
         if text.lower() == "skip":
-            updated_wish = update_wish(wish_id, user_id, image_path=None)
+            updated_wish, error = wishlist_service.update_wish(
+                wish_id, 
+                user_id, 
+                image_path=None
+            )
+            
+            if error:
+                await update.message.reply_text(
+                    f"❌ {error}",
+                    reply_markup=main_menu_keyboard()
+                )
+                context.user_data.clear()
+                return ConversationHandler.END
         else:
             await update.message.reply_text(
                 "❌ Please send a photo or type 'skip'",
@@ -620,10 +678,6 @@ async def edit_image_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if updated_wish:
         await update.message.reply_text("✅ Image updated!", parse_mode="HTML")
         await send_wish_detail(update, updated_wish, show_actions=True)
-    else:
-        await update.message.reply_text(
-            "❌ Failed to update image", reply_markup=main_menu_keyboard()
-        )
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -639,3 +693,29 @@ async def cancel_edit_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "❌ Editing canceled", reply_markup=main_menu_keyboard()
     )
     return ConversationHandler.END
+
+# ===== MAIN MENU BUTTON HANDLING =====
+
+
+async def handle_menu_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle clicks on main menu buttons"""
+    text = update.message.text
+
+    if text == MY_WISHLIST_BUTTON:
+        await my_wishlist(update, context)
+
+    elif text == ADD_WISH_BUTTON:
+        return await add_wish_start(update, context)
+
+    elif text == SHARE_BUTTON:
+        await update.message.reply_text(
+            "🔗 Feature in development...\n"
+            "Soon you will be able to share your wishlist!",
+            reply_markup=main_menu_keyboard(),
+        )
+
+    elif text == SETTINGS_BUTTON:
+        await update.message.reply_text(
+            "⚙️ Feature in development...\n" "Settings will be available soon!",
+            reply_markup=main_menu_keyboard(),
+        )

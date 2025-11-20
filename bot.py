@@ -1,7 +1,5 @@
 import os
 import logging
-from fastapi import FastAPI
-import uvicorn
 
 from telegram import Update
 from telegram.ext import (
@@ -62,13 +60,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- FastAPI app for Render ---
-app = FastAPI()
-
-
-@app.get("/")
-async def root():
-    return {"message": "Bot is running!"}
 
 
 # --- Background task for Telegram notifications ---
@@ -96,21 +87,17 @@ async def start_with_args(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # --- Main async function ---
-async def main():
-    print("🚀 Starting main()...")
+def main():
+    """Main function to run the bot"""
+    logger.info("🚀 Starting bot...")
 
+    # Setup
     init_db()
-    print("🔧 Initializing database...")
+    logger.info("🔧 Database initialized")
 
-    print("🤖 Launching Telegram bot...")
+    # Create application
     application = Application.builder().token(BOT_TOKEN).build()
-
-    # --- Remove webhook if it exists ---
-    try:
-        await application.bot.delete_webhook()
-        print("✅ Webhook removed (if it existed)")
-    except Exception as e:
-        print(f"⚠️ Failed to remove webhook: {e}")
+    logger.info("🤖 Application created")
 
     # --- Add handlers ---
 
@@ -198,24 +185,14 @@ async def main():
         )
     )
 
-    # --- Start background task ---
-    application.create_task(background_task(application))
 
-    # --- Start polling ---
-    print("✅ Bot launched successfully (polling mode)")
-    await application.run_polling()
-
+ # --- Start polling ---
+    logger.info("✅ Starting polling...")
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True  
+    )
 
 # === Run everything on Render ===
 if __name__ == "__main__":
-    import nest_asyncio
-
-    nest_asyncio.apply()  # allow nested loops in Jupyter/uvicorn/Render
-    import asyncio
-
-    # Run the async main
-    asyncio.run(main())
-
-    # Run FastAPI server on the same process (port from environment)
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    main()
