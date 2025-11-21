@@ -6,3 +6,10 @@ credentials.json
 token.json
 botvenv/
 botvenv2/
+
+# Database
+*.db
+*.db-journal
+
+# Alembic
+alembic/versions/__pycache__/

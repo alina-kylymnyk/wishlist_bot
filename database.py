@@ -2,7 +2,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from models import Base, User, Wish
 from config import DATABASE_URL, DB_ECHO
-from typing import Optional, List
+from typing import Optional, List, Tuple
 
 engine = create_engine(DATABASE_URL, echo=DB_ECHO)
 
